@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Workout Tracker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
             --bg-color: #000000;
@@ -138,7 +139,7 @@
             flex-direction: column;
             align-items: center;
             gap: 4px;
-            width: 33%;
+            width: 25%; /* Изменили на 25%, так как теперь 4 кнопки */
         }
         .nav-item.active { color: var(--primary-color); }
         .nav-icon { font-size: 24px; }
@@ -163,16 +164,14 @@
         <div class="header-container">
             <h2>Тренировка</h2>
         </div>
-        <div id="workout-day-selector">
-            </div>
+        <div id="workout-day-selector"></div>
         
         <div id="active-workout-container" style="display: none;">
             <div class="flex-between card" style="background: var(--primary-color); border: none;">
                 <h3 id="active-workout-title" style="margin:0; color: white;"></h3>
                 <button class="ghost" style="color: white; font-weight: 600;" onclick="cancelWorkout()">Отмена</button>
             </div>
-            <div id="workout-exercises-list">
-                </div>
+            <div id="workout-exercises-list"></div>
             <button onclick="finishWorkout()" style="margin-top: 16px; background-color: var(--success-color);">🏁 Завершить тренировку</button>
         </div>
     </div>
@@ -189,6 +188,14 @@
         </div>
     </div>
 
+    <div id="history-screen" class="screen">
+        <div class="header-container">
+            <h2>История</h2>
+        </div>
+        <div id="history-list-container">
+            </div>
+    </div>
+
     <div id="setup-screen" class="screen">
         <div class="header-container">
             <h2>Сплит</h2>
@@ -200,8 +207,7 @@
                 <button class="secondary" style="width: 60px;" onclick="addDay()">+</button>
             </div>
         </div>
-        <div id="config-days-list">
-            </div>
+        <div id="config-days-list"></div>
     </div>
 
     <nav class="bottom-nav">
@@ -213,6 +219,10 @@
             <span class="nav-icon">📈</span>
             <span>Динамика</span>
         </div>
+        <div class="nav-item" onclick="switchTab('history')">
+            <span class="nav-icon">🕒</span>
+            <span>История</span>
+        </div>
         <div class="nav-item" onclick="switchTab('setup')">
             <span class="nav-icon">⚙️</span>
             <span>Сплит</span>
@@ -220,6 +230,9 @@
     </nav>
 
     <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Разворачиваем аппку на весь экран телефона
+
         const TARGET_SETS = 3;
 
         // Базовый сплит
@@ -268,34 +281,43 @@
             }
         ];
 
-        let appData = {
-            config: [],
-            history: [] 
-        };
+        let appData = { config: [], history: [] };
+        let currentWorkout = { dayId: null, results: {} };
 
-        let currentWorkout = {
-            dayId: null,
-            results: {} 
-        };
-
-        // --- ИНИЦИАЛИЗАЦИЯ И ХРАНЕНИЕ ---
+        // --- ГИБРИДНОЕ ХРАНЕНИЕ С МИГРАЦИЕЙ ДАННЫХ ---
         function loadData() {
-            try {
+            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
+                tg.CloudStorage.getItem('workoutApp_data', (err, saved) => {
+                    if (!saved || saved.length === 0) {
+                        const oldLocalData = localStorage.getItem('workoutApp_data');
+                        if (oldLocalData) {
+                            handleLoadedData(oldLocalData);
+                            saveData(); // Пересохраняем локальное в облако
+                            return;
+                        }
+                    }
+                    handleLoadedData(saved);
+                });
+            } else {
                 const saved = localStorage.getItem('workoutApp_data');
+                handleLoadedData(saved);
+            }
+        }
+
+        function handleLoadedData(saved) {
+            try {
                 if (saved) {
                     const parsedData = JSON.parse(saved);
                     appData.config = parsedData.config || [];
                     appData.history = parsedData.history || [];
                     
-                    // Предохранитель: если конфиг загрузился пустым (из-за старого бага)
                     if (appData.config.length === 0) {
                         appData.config = defaultSplit;
                         saveData();
-                        return; // saveData сама вызовет updateUI
+                        return;
                     }
                     updateUI(); 
                 } else {
-                    // Чистый старт
                     appData.config = defaultSplit;
                     saveData();
                 }
@@ -307,7 +329,14 @@
         }
 
         function saveData() {
-            localStorage.setItem('workoutApp_data', JSON.stringify(appData));
+            const dataStr = JSON.stringify(appData);
+            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
+                tg.CloudStorage.setItem('workoutApp_data', dataStr, (err, success) => {
+                    if (err) console.error("Ошибка сохранения", err);
+                });
+            } else {
+                localStorage.setItem('workoutApp_data', dataStr);
+            }
             updateUI();
         }
 
@@ -320,6 +349,7 @@
             event.currentTarget.classList.add('active');
             
             if(tabName === 'stats') populateStatsSelect();
+            if(tabName === 'history') renderHistoryTab();
         }
 
         // --- СПЛИТ (SETUP) ---
@@ -328,11 +358,7 @@
             const name = nameInput.value.trim();
             if (!name) return;
 
-            appData.config.push({
-                id: 'day_' + Date.now(),
-                name: name,
-                exercises: []
-            });
+            appData.config.push({ id: 'day_' + Date.now(), name: name, exercises: [] });
             nameInput.value = '';
             saveData();
         }
@@ -470,7 +496,7 @@
             document.getElementById('active-workout-container').style.display = 'none';
         }
 
-        // --- СТАТИСТИКА ---
+        // --- СТАТИСТИКА (ДИНАМИКА) ---
         function populateStatsSelect() {
             const select = document.getElementById('stats-exercise-select');
             if(!select) return;
@@ -514,6 +540,54 @@
             container.innerHTML = html || '<p style="color: var(--text-muted); text-align: center; padding: 20px 0;">Нет сохраненных результатов.</p>';
         }
 
+        // --- ИСТОРИЯ (ОБЩАЯ ЛЕНТА) ---
+        function renderHistoryTab() {
+            const container = document.getElementById('history-list-container');
+            if(!container) return;
+            container.innerHTML = '';
+
+            if (appData.history.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px 0;">История тренировок пуста.</p>';
+                return;
+            }
+
+            for (let i = appData.history.length - 1; i >= 0; i--) {
+                const session = appData.history[i];
+                const dayConfig = appData.config.find(d => d.id === session.dayId);
+                const dayName = dayConfig ? dayConfig.name : 'Удаленный день';
+
+                let resultsHtml = '';
+                for (const [exName, sets] of Object.entries(session.results)) {
+                    let setsStr = sets.map(s => `<b>${s.w || 0}</b>x${s.r || 0}`).join(' | ');
+                    resultsHtml += `
+                        <div style="margin-bottom: 12px; font-size: 15px;">
+                            <div style="color: var(--text-muted); margin-bottom: 4px; font-size: 13px;">${exName}</div>
+                            <div style="color: var(--text-main);">${setsStr}</div>
+                        </div>
+                    `;
+                }
+
+                container.innerHTML += `
+                    <div class="card">
+                        <div class="flex-between" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                            <h4 style="margin:0; color: var(--primary-color); font-size: 18px;">${session.date}</h4>
+                            <span style="font-size: 15px; font-weight: 600;">${dayName}</span>
+                        </div>
+                        <div>${resultsHtml}</div>
+                        <button class="ghost" style="color: var(--danger-color); font-size: 14px; margin-top: 16px; padding: 0; width: auto;" onclick="deleteHistoryEntry(${i})">🗑 Удалить запись</button>
+                    </div>
+                `;
+            }
+        }
+
+        function deleteHistoryEntry(index) {
+            if(confirm("Удалить эту тренировку из истории?")) {
+                appData.history.splice(index, 1);
+                saveData();
+                renderHistoryTab(); // Перерисовываем список
+            }
+        }
+
         // --- РЕНДЕР ИНТЕРФЕЙСА ---
         function updateUI() {
             const configList = document.getElementById('config-days-list');
@@ -553,9 +627,16 @@
             }
         }
 
-        // ЗАПУСК: Ждем полной загрузки DOM
+        // ЗАПУСК И ФИКС КЛАВИАТУРЫ IOS
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
+            
+            document.addEventListener('touchstart', (e) => {
+                const tag = e.target.tagName;
+                if (tag !== 'INPUT' && tag !== 'BUTTON' && tag !== 'SELECT') {
+                    document.activeElement.blur();
+                }
+            });
         });
     </script>
 </body>
