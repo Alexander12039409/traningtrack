@@ -365,6 +365,19 @@
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand(); 
+        
+        // Хелпер для виброотклика (с проверкой поддержки)
+        function haptic(type) {
+            if (tg.HapticFeedback) {
+                if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(type)) {
+                    tg.HapticFeedback.impactOccurred(type);
+                } else if (['error', 'success', 'warning'].includes(type)) {
+                    tg.HapticFeedback.notificationOccurred(type);
+                } else if (type === 'selection') {
+                    tg.HapticFeedback.selectionChanged();
+                }
+            }
+        }
 
         let currentCalDate = new Date(); 
         let currentStatsEx = ""; 
@@ -420,6 +433,7 @@
 
         // --- УПРАВЛЕНИЕ ШТОРКОЙ ---
         function openDrawer(title, contentHtml) {
+            haptic('light');
             document.getElementById('drawer-title').innerText = title;
             document.getElementById('drawer-content').innerHTML = contentHtml;
             document.getElementById('drawer-overlay').classList.add('active');
@@ -427,6 +441,7 @@
         }
 
         function closeDrawer() {
+            haptic('soft');
             document.getElementById('drawer-overlay').classList.remove('active');
             document.getElementById('bottom-drawer').classList.remove('active');
             setTimeout(() => { document.getElementById('drawer-content').innerHTML = ''; }, 300);
@@ -459,7 +474,7 @@
                     appData.config = parsedData.config || [];
                     appData.history = parsedData.history || [];
                     
-                    // Миграция старых строковых массивов упражнений в объекты {name, sets, description}
+                    // Миграция старых строковых массивов упражнений
                     appData.config.forEach(day => {
                         day.exercises = day.exercises.map(ex => {
                             if (typeof ex === 'string') return { name: ex, sets: 3, description: '' };
@@ -496,6 +511,7 @@
 
         // --- НАВИГАЦИЯ ---
         function switchTab(tabName) {
+            haptic('selection');
             document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             
@@ -507,6 +523,7 @@
 
         // --- БОЕВОЙ РЕЖИМ ---
         function startWorkout(dayId) {
+            haptic('medium');
             currentWorkout.dayId = dayId;
             currentWorkout.results = {};
             document.getElementById('workout-day-selector').style.display = 'none';
@@ -520,6 +537,7 @@
         }
 
         function cancelWorkout() {
+            haptic('warning');
             if(confirm("Отменить тренировку? Прогресс не сохранится.")) {
                 currentWorkout.dayId = null;
                 document.getElementById('workout-day-selector').style.display = 'block';
@@ -537,6 +555,7 @@
         }
 
         function toggleAccordion(exIndex) {
+            haptic('light');
             const content = document.getElementById(`ex-content-${exIndex}`);
             const chevron = document.getElementById(`chevron-${exIndex}`);
             if (content.style.display === 'none') {
@@ -557,6 +576,7 @@
                         const content = document.getElementById(`ex-content-${exIndex}`);
                         const chevron = document.getElementById(`chevron-${exIndex}`);
                         if (content && content.style.display !== 'none') {
+                            haptic('soft');
                             content.style.display = 'none';
                             chevron.style.transform = 'rotate(180deg)';
                         }
@@ -627,9 +647,12 @@
                 if (validSets.length > 0) cleanResults[key] = validSets;
             }
             if (Object.keys(cleanResults).length === 0) {
+                haptic('error');
                 alert("Ты не записал ни одного подхода.");
                 return;
             }
+            
+            haptic('success');
             const now = new Date();
             const dateStr = now.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
             
@@ -706,6 +729,7 @@
         }
 
         function selectStatsEx(exName) {
+            haptic('selection');
             currentStatsEx = exName;
             document.getElementById('stats-selected-ex').innerText = exName;
             document.getElementById('stats-selected-ex').style.color = "var(--primary-color)";
@@ -735,6 +759,7 @@
 
         // --- КАЛЕНДАРЬ И ИСТОРИЯ ---
         function changeMonth(delta) {
+            haptic('selection');
             currentCalDate.setMonth(currentCalDate.getMonth() + delta);
             renderHistoryTab();
         }
@@ -839,6 +864,7 @@
         }
 
         function deleteHistoryEntry(index) {
+            haptic('heavy');
             if(confirm("Точно удалить эту запись?")) {
                 appData.history.splice(index, 1);
                 saveData();
@@ -851,6 +877,7 @@
             const nameInput = document.getElementById('new-day-name');
             const name = nameInput.value.trim();
             if (!name) return;
+            haptic('medium');
             appData.config.push({ id: 'day_' + Date.now(), name: name, exercises: [] });
             nameInput.value = '';
             saveData();
@@ -869,11 +896,13 @@
             
             const day = appData.config.find(d => d.id === dayId);
             if (day && !day.exercises.find(e => e.name === exName)) {
+                haptic('medium');
                 day.exercises.push({ name: exName, sets: setsCount, description: exDesc });
                 input.value = '';
                 descInput.value = '';
                 saveData();
             } else if (day && day.exercises.find(e => e.name === exName)) {
+                haptic('warning');
                 alert("Упражнение с таким названием уже есть в этом дне.");
             }
         }
@@ -908,6 +937,7 @@
             
             if (!newName) return;
             
+            haptic('success');
             day.exercises[exIndex].name = newName;
             day.exercises[exIndex].sets = newSets;
             day.exercises[exIndex].description = newDesc;
@@ -917,6 +947,7 @@
         }
 
         function removeExercise(dayId, exIndex) {
+            haptic('heavy');
             const day = appData.config.find(d => d.id === dayId);
             const exName = day.exercises[exIndex].name;
             if(confirm(`Удалить "${exName}"?`)) {
@@ -926,6 +957,7 @@
         }
 
         function deleteDay(dayId) {
+            haptic('heavy');
             if(confirm("Полностью удалить этот день?")) {
                 appData.config = appData.config.filter(d => d.id !== dayId);
                 saveData();
