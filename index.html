@@ -366,51 +366,51 @@
         const tg = window.Telegram.WebApp;
         tg.expand(); 
 
-        const TARGET_SETS = 3;
-        let currentCalDate = new Date(); // Для календаря
-        let currentStatsEx = ""; // Для выбранного упражнения в статистике
+        let currentCalDate = new Date(); 
+        let currentStatsEx = ""; 
 
+        // Базовый сплит
         const defaultSplit = [
             {
                 id: 'day_1',
                 name: 'День первый',
                 exercises: [
-                    'Тяга штанги в наклоне',
-                    'Тяга горизонтального блока с широкой рукояткой',
-                    'Жим штанги лежа',
-                    'Махи на среднюю дельту',
-                    'Махи гантелей на заднюю дельту лицом в наклонную скамью',
-                    'Сгибание руки с гантелей в тренажере Скотта',
-                    'Пресс на наклонной скамье с отягощением',
-                    'Разгибание рук в кроссовере с прямой рукояткой (трицепс)'
+                    {name: 'Тяга штанги в наклоне', sets: 3},
+                    {name: 'Тяга горизонтального блока с широкой рукояткой', sets: 3},
+                    {name: 'Жим штанги лежа', sets: 3},
+                    {name: 'Махи на среднюю дельту', sets: 3},
+                    {name: 'Махи гантелей на заднюю дельту лицом в наклонную скамью', sets: 3},
+                    {name: 'Сгибание руки с гантелей в тренажере Скотта', sets: 3},
+                    {name: 'Пресс на наклонной скамье с отягощением', sets: 3},
+                    {name: 'Разгибание рук в кроссовере с прямой рукояткой (трицепс)', sets: 3}
                 ]
             },
             {
                 id: 'day_2',
                 name: 'День второй',
                 exercises: [
-                    'Подтягивания',
-                    'Прожимание гантелей на наклонной скамье на спину (Бамстед стайл)',
-                    'Жим гантелей на наклонной скамье',
-                    'Протяжка с гантелями на среднюю дельту',
-                    'Тяга штанги на заднюю дельту на наклонной скамье',
-                    'Сгибание рук со штангой (Бицепс)',
-                    'Скручивание с канатами (на пресс)'
+                    {name: 'Подтягивания', sets: 3},
+                    {name: 'Прожимание гантелей на наклонной скамье на спину (Бамстед стайл)', sets: 3},
+                    {name: 'Жим гантелей на наклонной скамье', sets: 3},
+                    {name: 'Протяжка с гантелями на среднюю дельту', sets: 3},
+                    {name: 'Тяга штанги на заднюю дельту на наклонной скамье', sets: 3},
+                    {name: 'Сгибание рук со штангой (Бицепс)', sets: 3},
+                    {name: 'Скручивание с канатами (на пресс)', sets: 3}
                 ]
             },
             {
                 id: 'day_3',
                 name: 'День третий',
                 exercises: [
-                    'Тяга в кроссовере по одной руке',
-                    'Пулловер',
-                    'Тяга вертикального блока, широкой рукояткой с прожиманием спины',
-                    'Жим в наклонной скамье',
-                    'Махи с гантелями на среднюю дельту',
-                    'Тяга каната на уровень глаз на заднюю дельту',
-                    'Сгибание рук на бицепс в кроссовере',
-                    'Разгибание рук с гантелью сидя (трицепс)',
-                    'Поднимание ног на пресс'
+                    {name: 'Тяга в кроссовере по одной руке', sets: 3},
+                    {name: 'Пулловер', sets: 3},
+                    {name: 'Тяга вертикального блока, широкой рукояткой с прожиманием спины', sets: 3},
+                    {name: 'Жим в наклонной скамье', sets: 3},
+                    {name: 'Махи с гантелями на среднюю дельту', sets: 3},
+                    {name: 'Тяга каната на уровень глаз на заднюю дельту', sets: 3},
+                    {name: 'Сгибание рук на бицепс в кроссовере', sets: 3},
+                    {name: 'Разгибание рук с гантелью сидя (трицепс)', sets: 3},
+                    {name: 'Поднимание ног на пресс', sets: 3}
                 ]
             }
         ];
@@ -429,11 +429,10 @@
         function closeDrawer() {
             document.getElementById('drawer-overlay').classList.remove('active');
             document.getElementById('bottom-drawer').classList.remove('active');
-            // Очищаем через таймаут, чтобы анимация успела проиграться
             setTimeout(() => { document.getElementById('drawer-content').innerHTML = ''; }, 300);
         }
 
-        // --- ДАННЫЕ ---
+        // --- ДАННЫЕ И МИГРАЦИЯ ---
         function loadData() {
             if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
                 tg.CloudStorage.getItem('workoutApp_data', (err, saved) => {
@@ -460,6 +459,14 @@
                     appData.config = parsedData.config || [];
                     appData.history = parsedData.history || [];
                     
+                    // Миграция старых строковых массивов упражнений в объекты {name, sets, description}
+                    appData.config.forEach(day => {
+                        day.exercises = day.exercises.map(ex => {
+                            if (typeof ex === 'string') return { name: ex, sets: 3, description: '' };
+                            return ex;
+                        });
+                    });
+
                     if (appData.config.length === 0) {
                         appData.config = defaultSplit;
                         saveData();
@@ -516,7 +523,7 @@
             if(confirm("Отменить тренировку? Прогресс не сохранится.")) {
                 currentWorkout.dayId = null;
                 document.getElementById('workout-day-selector').style.display = 'block';
-                renderHighlightWidget(); // Возвращаем виджет
+                renderHighlightWidget(); 
                 document.getElementById('active-workout-container').style.display = 'none';
             }
         }
@@ -529,34 +536,83 @@
             return null;
         }
 
+        function toggleAccordion(exIndex) {
+            const content = document.getElementById(`ex-content-${exIndex}`);
+            const chevron = document.getElementById(`chevron-${exIndex}`);
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+            } else {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(180deg)';
+            }
+        }
+
+        function checkAutoCollapse(exName, exIndex, lastSetIndex) {
+            setTimeout(() => {
+                const results = currentWorkout.results[exName];
+                if (results && results[lastSetIndex]) {
+                    const lastSet = results[lastSetIndex];
+                    if (lastSet.w !== null && lastSet.r !== null && lastSet.w !== '' && lastSet.r !== '') {
+                        const content = document.getElementById(`ex-content-${exIndex}`);
+                        const chevron = document.getElementById(`chevron-${exIndex}`);
+                        if (content && content.style.display !== 'none') {
+                            content.style.display = 'none';
+                            chevron.style.transform = 'rotate(180deg)';
+                        }
+                    }
+                }
+            }, 150);
+        }
+
         function renderActiveExercises(day) {
             const container = document.getElementById('workout-exercises-list');
             container.innerHTML = '';
 
-            day.exercises.forEach((exName, exIndex) => {
+            day.exercises.forEach((exObj, exIndex) => {
+                const exName = exObj.name;
                 currentWorkout.results[exName] = []; 
                 const prevData = getPreviousResults(day.id, exName);
                 
                 let setsHtml = '';
-                for(let i=0; i<TARGET_SETS; i++) {
+                for(let i=0; i<exObj.sets; i++) {
                     let ghostW = prevData && prevData[i] ? prevData[i].w : '-';
                     let ghostR = prevData && prevData[i] ? prevData[i].r : '-';
                     let ghostStr = prevData && prevData[i] ? `Было:<br><span style="color:#fff">${ghostW}кг × ${ghostR}</span>` : 'Было:<br>-';
                     
+                    const blurEvent = (i === exObj.sets - 1) ? `onblur="checkAutoCollapse('${exName}', ${exIndex}, ${i})"` : '';
+
                     setsHtml += `
                         <div class="set-row">
-                            <input type="number" inputmode="decimal" placeholder="КГ" id="w_${exIndex}_${i}" onchange="updateSet('${exName}', ${i})">
-                            <input type="number" inputmode="numeric" placeholder="ПОВТ" id="r_${exIndex}_${i}" onchange="updateSet('${exName}', ${i})">
+                            <input type="number" inputmode="decimal" placeholder="КГ" id="w_${exIndex}_${i}" onchange="updateSet('${exName}', ${i})" ${blurEvent}>
+                            <input type="number" inputmode="numeric" placeholder="ПОВТ" id="r_${exIndex}_${i}" onchange="updateSet('${exName}', ${i})" ${blurEvent}>
                             <div class="ghost-text">${ghostStr}</div>
                         </div>
                     `;
                 }
-                container.innerHTML += `<div class="card"><div class="badge">Упражнение ${exIndex + 1}</div><h4>${exName}</h4>${setsHtml}</div>`;
+
+                container.innerHTML += `
+                    <div class="card" id="ex-card-${exIndex}">
+                        <div class="flex-between" onclick="toggleAccordion(${exIndex})" style="cursor: pointer;">
+                            <div>
+                                <div class="badge" style="margin-bottom: 8px;">Упражнение ${exIndex + 1}</div>
+                                <h4 style="margin: 0; padding-right: 16px;">${exName}</h4>
+                                ${exObj.description ? `<div style="font-size: 13px; color: var(--text-muted); margin-top: 4px; padding-right: 16px; line-height: 1.2;">${exObj.description}</div>` : ''}
+                            </div>
+                            <div id="chevron-${exIndex}" style="transition: transform 0.3s ease; color: var(--text-muted);">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                            </div>
+                        </div>
+                        <div id="ex-content-${exIndex}" style="display: block;">
+                            ${setsHtml}
+                        </div>
+                    </div>
+                `;
             });
         }
 
         function updateSet(exName, setIndex) {
-            const exIndex = appData.config.find(d => d.id === currentWorkout.dayId).exercises.indexOf(exName);
+            const exIndex = appData.config.find(d => d.id === currentWorkout.dayId).exercises.findIndex(e => e.name === exName);
             const w = document.getElementById(`w_${exIndex}_${setIndex}`).value;
             const r = document.getElementById(`r_${exIndex}_${setIndex}`).value;
             
@@ -593,17 +649,14 @@
                 return;
             }
 
-            // Собираем все уникальные упражнения из истории
             let allEx = new Set();
             appData.history.forEach(h => Object.keys(h.results).forEach(e => allEx.add(e)));
             let exArray = Array.from(allEx);
             if(exArray.length === 0) return;
 
-            // Выбираем случайное упражнение
             let randomEx = exArray[Math.floor(Math.random() * exArray.length)];
             let bestW = 0; let bestR = 0; let bestTimestamp = 0;
 
-            // Ищем лучший результат (макс вес, при равенстве - макс повторы)
             appData.history.forEach(h => {
                 if(h.results[randomEx]) {
                     h.results[randomEx].forEach(set => {
@@ -614,7 +667,7 @@
                 }
             });
 
-            if(bestW === 0 && bestR === 0) return; // Пустой сет
+            if(bestW === 0 && bestR === 0) return; 
 
             const dateObj = new Date(bestTimestamp);
             const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -622,12 +675,12 @@
 
             container.innerHTML = `
                 <div class="card" style="background: linear-gradient(135deg, #1c2217 0%, var(--surface-color) 100%); border: 1px solid rgba(212, 255, 58, 0.15); display: flex; justify-content: space-between; align-items: center;">
-                    <div>
+                    <div style="flex-grow: 1; padding-right: 12px;">
                         <div style="font-size: 11px; color: var(--primary-color); margin-bottom: 4px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">Твой рекорд</div>
                         <div style="font-size: 15px; font-weight: 600; color: #ddd; margin-bottom: 8px; line-height: 1.2;">${randomEx}</div>
                         <div style="font-size: 12px; color: var(--text-muted);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 2px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> ${formattedDate}</div>
                     </div>
-                    <div style="text-align: right; background: var(--surface-light); padding: 12px; border-radius: 20px;">
+                    <div style="text-align: right; background: var(--surface-light); padding: 12px; border-radius: 20px; flex-shrink: 0;">
                         <div style="font-size: 20px; font-weight: 700; color: var(--text-main); white-space: nowrap;">${bestW} кг</div>
                         <div style="font-size: 14px; font-weight: 500; color: var(--text-muted);">× ${bestR}</div>
                     </div>
@@ -639,7 +692,7 @@
         // --- ДИНАМИКА (В ШТОРКЕ) ---
         function openStatsSelector() {
             let allEx = new Set();
-            appData.config.forEach(d => d.exercises.forEach(e => allEx.add(e)));
+            appData.config.forEach(d => d.exercises.forEach(e => allEx.add(e.name)));
             let exArray = Array.from(allEx).sort();
             
             let html = '';
@@ -711,17 +764,15 @@
                 html += `</div>`;
             });
             
-            // Название для шторки: "Тренировка за 12.05"
             openDrawer(`Итоги за ${sessions[0].date.substring(0,5)}`, html);
         }
 
         function renderHistoryTab() {
-            // 1. РЕНДЕР КАЛЕНДАРЯ
             const calContainer = document.getElementById('calendar-container');
             const year = currentCalDate.getFullYear();
             const month = currentCalDate.getMonth();
             const firstDay = new Date(year, month, 1).getDay(); 
-            let startDay = firstDay === 0 ? 6 : firstDay - 1; // Пн - первый день
+            let startDay = firstDay === 0 ? 6 : firstDay - 1; 
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
             
@@ -755,7 +806,6 @@
             calHtml += '</div>';
             calContainer.innerHTML = calHtml;
 
-            // 2. РЕНДЕР ЛЕНТЫ ИСТОРИИ НИЖЕ
             const listContainer = document.getElementById('history-list-container');
             listContainer.innerHTML = '<h3 style="margin-top: 32px; margin-bottom: 16px; font-size: 20px;">Лента активности</h3>';
 
@@ -796,7 +846,7 @@
             }
         }
 
-        // --- СПЛИТ (НАСТРОЙКИ) ---
+        // --- СПЛИТ (НАСТРОЙКИ) И РЕДАКТИРОВАНИЕ УПРАЖНЕНИЙ ---
         function addDay() {
             const nameInput = document.getElementById('new-day-name');
             const name = nameInput.value.trim();
@@ -808,19 +858,69 @@
 
         function addExerciseToDay(dayId) {
             const input = document.getElementById(`new-ex-${dayId}`);
+            const setsInput = document.getElementById(`new-ex-sets-${dayId}`);
+            const descInput = document.getElementById(`new-ex-desc-${dayId}`);
+            
             const exName = input.value.trim();
+            const setsCount = parseInt(setsInput.value) || 3;
+            const exDesc = descInput.value.trim();
+            
             if (!exName) return;
+            
             const day = appData.config.find(d => d.id === dayId);
-            if (day && !day.exercises.includes(exName)) {
-                day.exercises.push(exName);
+            if (day && !day.exercises.find(e => e.name === exName)) {
+                day.exercises.push({ name: exName, sets: setsCount, description: exDesc });
+                input.value = '';
+                descInput.value = '';
                 saveData();
+            } else if (day && day.exercises.find(e => e.name === exName)) {
+                alert("Упражнение с таким названием уже есть в этом дне.");
             }
         }
 
-        function removeExercise(dayId, exName) {
+        function openEditExercise(dayId, exIndex) {
+            const day = appData.config.find(d => d.id === dayId);
+            const ex = day.exercises[exIndex];
+            
+            let html = `
+                <div style="margin-bottom: 16px;">
+                    <label style="color: var(--text-muted); font-size: 13px; margin-bottom: 6px; display: block; font-weight: 600;">Название упражнения</label>
+                    <input type="text" id="edit-ex-name" value="${ex.name}">
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <label style="color: var(--text-muted); font-size: 13px; margin-bottom: 6px; display: block; font-weight: 600;">Количество подходов</label>
+                    <input type="number" id="edit-ex-sets" value="${ex.sets}" min="1" max="10">
+                </div>
+                <div style="margin-bottom: 24px;">
+                    <label style="color: var(--text-muted); font-size: 13px; margin-bottom: 6px; display: block; font-weight: 600;">Описание (опционально)</label>
+                    <input type="text" id="edit-ex-desc" value="${ex.description || ''}" placeholder="Заметки, темп, вес...">
+                </div>
+                <button onclick="saveEditedExercise('${dayId}', ${exIndex})">Сохранить изменения</button>
+            `;
+            openDrawer('Редактировать', html);
+        }
+
+        function saveEditedExercise(dayId, exIndex) {
+            const day = appData.config.find(d => d.id === dayId);
+            const newName = document.getElementById('edit-ex-name').value.trim();
+            const newSets = parseInt(document.getElementById('edit-ex-sets').value) || 3;
+            const newDesc = document.getElementById('edit-ex-desc').value.trim();
+            
+            if (!newName) return;
+            
+            day.exercises[exIndex].name = newName;
+            day.exercises[exIndex].sets = newSets;
+            day.exercises[exIndex].description = newDesc;
+            
+            saveData();
+            closeDrawer();
+        }
+
+        function removeExercise(dayId, exIndex) {
+            const day = appData.config.find(d => d.id === dayId);
+            const exName = day.exercises[exIndex].name;
             if(confirm(`Удалить "${exName}"?`)) {
-                const day = appData.config.find(d => d.id === dayId);
-                day.exercises = day.exercises.filter(e => e !== exName);
+                day.exercises.splice(exIndex, 1);
                 saveData();
             }
         }
@@ -834,7 +934,7 @@
 
         // --- ГЛАВНЫЙ РЕНДЕР ИНТЕРФЕЙСА ---
         function updateUI() {
-            renderHighlightWidget(); // Обновляем виджет рекордов
+            renderHighlightWidget();
 
             const configList = document.getElementById('config-days-list');
             const daySelector = document.getElementById('workout-day-selector');
@@ -842,12 +942,20 @@
             if (configList) {
                 configList.innerHTML = '';
                 appData.config.forEach(day => {
-                    let exHtml = day.exercises.map(ex => `
-                        <div class="flex-between" style="margin-bottom:12px; padding-bottom:12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <span style="font-size: 15px; line-height: 1.4; color: #ddd;">${ex}</span>
-                            <button class="ghost" style="color: var(--text-muted); padding: 0 10px;" onclick="removeExercise('${day.id}', '${ex}')">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            </button>
+                    let exHtml = day.exercises.map((exObj, index) => `
+                        <div style="margin-bottom:12px; padding-bottom:12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <div class="flex-between" style="margin-bottom: 4px;">
+                                <span style="font-size: 16px; font-weight: 600; color: var(--text-main); line-height: 1.3;">${exObj.name} <span style="color:var(--text-muted); font-size: 13px; font-weight: 500; white-space: nowrap;">(${exObj.sets} подх.)</span></span>
+                                <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: flex-start;">
+                                    <button class="ghost" style="color: var(--primary-color); padding: 6px;" onclick="openEditExercise('${day.id}', ${index})">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                    </button>
+                                    <button class="ghost" style="color: var(--danger-color); padding: 6px;" onclick="removeExercise('${day.id}', ${index})">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            ${exObj.description ? `<div style="font-size: 13px; color: var(--text-muted); line-height: 1.3; padding-right: 64px;">${exObj.description}</div>` : ''}
                         </div>
                     `).join('');
                     
@@ -863,11 +971,18 @@
                                 </button>
                             </div>
                             <div style="margin-bottom: 20px;">${exHtml}</div>
-                            <div class="input-row" style="margin:0;">
-                                <input type="text" id="new-ex-${day.id}" placeholder="Добавить упражнение" style="margin:0;">
-                                <button class="secondary" style="width: 56px; height: 56px; border-radius: 16px; padding: 0;" onclick="addExerciseToDay('${day.id}')">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                                </button>
+                            
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.03);">
+                                <div class="input-row" style="margin-bottom: 8px; gap: 8px;">
+                                    <input type="text" id="new-ex-${day.id}" placeholder="Название упражнения" style="margin:0; flex-grow: 1;">
+                                    <input type="number" id="new-ex-sets-${day.id}" value="3" min="1" max="10" style="width: 64px; margin:0; padding: 16px 4px; text-align: center; flex-shrink: 0;">
+                                </div>
+                                <div class="input-row" style="margin:0; gap: 8px;">
+                                    <input type="text" id="new-ex-desc-${day.id}" placeholder="Описание (опционально)" style="margin:0; flex-grow: 1;">
+                                    <button class="secondary" style="width: 56px; height: 52px; border-radius: 16px; padding: 0; flex-shrink: 0;" onclick="addExerciseToDay('${day.id}')">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -891,7 +1006,6 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
             
-            // Фикс клавиатуры для iOS и закрытие шторки по клику на фон
             document.addEventListener('touchstart', (e) => {
                 const tag = e.target.tagName;
                 if (tag !== 'INPUT' && tag !== 'BUTTON' && tag !== 'SELECT') {
