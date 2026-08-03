@@ -41,6 +41,13 @@
             overflow-x: hidden;
         }
 
+        /* Блокировка скролла при открытой модалке (Фикс 2) */
+        body.modal-open {
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+        }
+
         h1, h2 { font-weight: 700; margin-bottom: var(--spacing-md); font-size: 32px; letter-spacing: -0.5px;}
         h3 { font-size: 22px; margin-bottom: var(--spacing-sm); font-weight: 600;}
         h4 { font-size: 17px; margin-bottom: 4px; font-weight: 600; letter-spacing: -0.3px;}
@@ -75,7 +82,7 @@
         }
 
         /* Инпуты */
-        input[type="text"], input[type="number"] {
+        input[type="text"], input[type="number"], input[type="date"] {
             width: 100%;
             background-color: var(--surface-light);
             border: 2px solid transparent;
@@ -87,6 +94,7 @@
             margin-bottom: var(--spacing-sm);
             outline: none;
             transition: all 0.2s ease;
+            color-scheme: dark; /* Для нативного календаря */
         }
         input:focus { 
             border-color: var(--primary-color); 
@@ -250,7 +258,6 @@
         .history-sets { font-size: 15px; color: var(--text-main); }
         
         .flex-between { display: flex; justify-content: space-between; align-items: center; }
-        .mt-4 { margin-top: 16px; }
         
         .badge {
             background-color: var(--primary-color); color: var(--text-on-primary);
@@ -304,7 +311,14 @@
                 <button class="ghost" style="color: var(--text-on-primary); font-weight: 700; background: rgba(0,0,0,0.1); padding: 10px 16px; border-radius: 20px;" onclick="cancelWorkout()">Отмена</button>
             </div>
             <div id="workout-exercises-list"></div>
-            <button onclick="finishWorkout()" style="margin-top: 24px; font-size: 18px;">
+            
+            <!-- Выбор кастомной даты (Фикс 3) -->
+            <div class="card" style="margin-top: 16px; padding: 16px;">
+                <label style="color: var(--text-muted); font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">Дата тренировки</label>
+                <input type="date" id="workout-custom-date" style="margin: 0; padding: 12px; font-size: 16px; width: 100%; box-sizing: border-box;">
+            </div>
+
+            <button onclick="finishWorkout()" style="margin-top: 12px; font-size: 18px;">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M20 6L9 17l-5-5"></path></svg>
                 Завершить тренировку
             </button>
@@ -430,7 +444,7 @@
         let currentStatsEx = ""; 
         let focusExName = "";
         let focusExIndex = -1;
-        let focusSetIndex = -1; // Сохраняем конкретный подход
+        let focusSetIndex = -1; 
 
         const defaultSplit = [
             {
@@ -480,6 +494,15 @@
         let appData = { config: [], history: [] };
         let currentWorkout = { dayId: null, results: {} };
 
+        // Автосохранение черновика (Фикс 1)
+        function saveInProgressWorkout() {
+            localStorage.setItem('workoutApp_draft', JSON.stringify(currentWorkout));
+        }
+
+        function clearInProgressWorkout() {
+            localStorage.removeItem('workoutApp_draft');
+        }
+
         // --- УПРАВЛЕНИЕ ШТОРКАМИ ---
         function openDrawer(title, contentHtml) {
             haptic('light');
@@ -496,7 +519,6 @@
             setTimeout(() => { document.getElementById('drawer-content').innerHTML = ''; }, 300);
         }
 
-        // Вход в фокус-режим для ОДНОГО подхода
         function openFocusMode(exName, exIndex, setIndex) {
             haptic('light');
             focusExName = exName;
@@ -524,6 +546,7 @@
 
             document.getElementById('focus-overlay').classList.add('active');
             document.getElementById('focus-modal').classList.add('active');
+            document.body.classList.add('modal-open'); // Блокируем скролл (Фикс 2)
             
             document.querySelector('.bottom-nav-container').style.display = 'none';
         }
@@ -544,9 +567,9 @@
                     r: r !== '' ? parseInt(r) : null 
                 };
 
+                saveInProgressWorkout(); // Сохраняем черновик (Фикс 1)
                 renderActiveExercises(day);
 
-                // Если это был последний подход в упражнении и мы сохранили непустые данные — сворачиваем аккордеон
                 if (focusSetIndex === exObj.sets - 1 && w !== '' && r !== '') {
                     const content = document.getElementById(`ex-content-${focusExIndex}`);
                     const chevron = document.getElementById(`chevron-${focusExIndex}`);
@@ -561,6 +584,7 @@
 
             document.getElementById('focus-overlay').classList.remove('active');
             document.getElementById('focus-modal').classList.remove('active');
+            document.body.classList.remove('modal-open'); // Возвращаем скролл (Фикс 2)
             
             document.querySelector('.bottom-nav-container').style.display = 'block';
         }
@@ -574,14 +598,44 @@
                         if (oldLocalData) {
                             handleLoadedData(oldLocalData);
                             saveData(); 
+                            checkDraft(); // Проверяем черновик после загрузки
                             return;
                         }
                     }
                     handleLoadedData(saved);
+                    checkDraft();
                 });
             } else {
                 const saved = localStorage.getItem('workoutApp_data');
                 handleLoadedData(saved);
+                checkDraft();
+            }
+        }
+
+        function checkDraft() {
+            // Восстановление черновика (Фикс 1)
+            const draft = localStorage.getItem('workoutApp_draft');
+            if (draft) {
+                currentWorkout = JSON.parse(draft);
+                if (currentWorkout.dayId) {
+                    document.getElementById('workout-day-selector').style.display = 'none';
+                    document.getElementById('highlight-widget').style.display = 'none';
+                    document.getElementById('active-workout-container').style.display = 'block';
+                    
+                    const day = appData.config.find(d => d.id === currentWorkout.dayId);
+                    if (day) {
+                        document.getElementById('active-workout-title').innerText = day.name;
+                        
+                        // Устанавливаем дату сегодня или оставляем из выбора, если логика усложнится в будущем
+                        const today = new Date();
+                        const yyyy = today.getFullYear();
+                        const mm = String(today.getMonth() + 1).padStart(2, '0');
+                        const dd = String(today.getDate()).padStart(2, '0');
+                        document.getElementById('workout-custom-date').value = `${yyyy}-${mm}-${dd}`;
+
+                        renderActiveExercises(day);
+                    }
+                }
             }
         }
 
@@ -649,6 +703,15 @@
             
             const day = appData.config.find(d => d.id === dayId);
             document.getElementById('active-workout-title').innerText = day.name;
+            
+            // Устанавливаем сегодняшнюю дату в инпут (Фикс 3)
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            document.getElementById('workout-custom-date').value = `${yyyy}-${mm}-${dd}`;
+            
+            saveInProgressWorkout();
             renderActiveExercises(day);
             window.scrollTo(0, 0);
         }
@@ -657,6 +720,7 @@
             haptic('warning');
             if(confirm("Отменить тренировку? Прогресс не сохранится.")) {
                 currentWorkout.dayId = null;
+                clearInProgressWorkout(); // Очищаем черновик
                 document.getElementById('workout-day-selector').style.display = 'block';
                 renderHighlightWidget(); 
                 document.getElementById('active-workout-container').style.display = 'none';
@@ -703,7 +767,6 @@
                     let currW = currentWorkout.results[exName][i] && currentWorkout.results[exName][i].w !== null ? currentWorkout.results[exName][i].w : '';
                     let currR = currentWorkout.results[exName][i] && currentWorkout.results[exName][i].r !== null ? currentWorkout.results[exName][i].r : '';
 
-                    // Теперь каждая строка - это кнопка вызова фокус-режима
                     setsHtml += `
                         <div class="set-row clickable" onclick="openFocusMode('${exName}', ${exIndex}, ${i})" style="cursor: pointer;">
                             <div class="fake-input" style="color: ${currW ? 'var(--text-main)' : 'var(--text-muted)'};">${currW || 'КГ'}</div>
@@ -746,11 +809,28 @@
             }
             
             haptic('success');
-            const now = new Date();
-            const dateStr = now.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
             
-            appData.history.push({ date: dateStr, timestamp: now.getTime(), dayId: currentWorkout.dayId, results: cleanResults });
+            // Берем дату из инпута (Фикс 3)
+            const dateInput = document.getElementById('workout-custom-date').value;
+            let workoutDate = new Date(); // Фолбэк на сегодня
+            if (dateInput) {
+                // Чтобы избежать проблем с часовыми поясами, создаем дату аккуратно
+                const parts = dateInput.split('-');
+                if (parts.length === 3) {
+                    workoutDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                }
+            }
+            
+            const dateStr = workoutDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+            
+            appData.history.push({ 
+                date: dateStr, 
+                timestamp: workoutDate.getTime(), 
+                dayId: currentWorkout.dayId, 
+                results: cleanResults 
+            });
             saveData();
+            clearInProgressWorkout(); // Чистим черновик
             
             currentWorkout.dayId = null;
             document.getElementById('workout-day-selector').style.display = 'block';
