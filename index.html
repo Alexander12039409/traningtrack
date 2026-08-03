@@ -492,7 +492,7 @@
         let appData = { config: [], history: [] };
         let currentWorkout = { dayId: null, results: {} };
 
-        // Локальный черновик (не синхронизируем, так как это актуально только для текущего устройства в моменте)
+        // Локальный черновик
         function saveInProgressWorkout() {
             localStorage.setItem('workoutApp_draft', JSON.stringify(currentWorkout));
         }
@@ -535,7 +535,6 @@
                         return;
                     }
                     
-                    // 1. АВТО-МИГРАЦИЯ: Если есть старый монолитный ключ, разбиваем его и удаляем
                     if (keys && keys.includes('workoutApp_data')) {
                         tg.CloudStorage.getItem('workoutApp_data', (err, val) => {
                             if (val) {
@@ -544,7 +543,6 @@
                                     appData.config = parsed.config || defaultSplit;
                                     appData.history = parsed.history || [];
                                     
-                                    // Сохраняем в новый безопасный формат баз данных
                                     saveConfigToCloud();
                                     appData.history.forEach(h => saveSessionToCloud(h));
                                     tg.CloudStorage.removeItem('workoutApp_data'); 
@@ -557,7 +555,6 @@
                         return;
                     }
 
-                    // 2. Если облако абсолютно пустое, ищем локальные данные браузера для синхронизации вверх
                     const targetKeys = keys ? keys.filter(k => k === 'cfg' || k.startsWith('h_')) : [];
                     if (targetKeys.length === 0) {
                         const localSaved = localStorage.getItem('workoutApp_data');
@@ -577,7 +574,6 @@
                         return;
                     }
                     
-                    // 3. СТАНДАРТНАЯ ЗАГРУЗКА: Собираем данные из кусочков
                     tg.CloudStorage.getItems(targetKeys, (err, values) => {
                         if (err) { fallbackLocalLoad(); return; }
                         
@@ -723,7 +719,20 @@
                 };
 
                 saveInProgressWorkout(); 
-                renderActiveExercises(day); 
+                
+                // ТОЧЕЧНОЕ ОБНОВЛЕНИЕ DOM БЕЗ ПЕРЕРЕНДЕРА СПИСКА
+                const wElem = document.getElementById(`val-w-${focusExIndex}-${focusSetIndex}`);
+                const rElem = document.getElementById(`val-r-${focusExIndex}-${focusSetIndex}`);
+                
+                if (wElem) {
+                    wElem.innerText = w !== '' ? w : 'КГ';
+                    wElem.style.color = w !== '' ? 'var(--text-main)' : 'var(--text-muted)';
+                }
+                if (rElem) {
+                    rElem.innerText = r !== '' ? r : 'ПОВТ';
+                    rElem.style.color = r !== '' ? 'var(--text-main)' : 'var(--text-muted)';
+                }
+                
             } else {
                 haptic('soft');
             }
@@ -828,10 +837,11 @@
                     let currW = currentWorkout.results[exName][i] && currentWorkout.results[exName][i].w !== null ? currentWorkout.results[exName][i].w : '';
                     let currR = currentWorkout.results[exName][i] && currentWorkout.results[exName][i].r !== null ? currentWorkout.results[exName][i].r : '';
 
+                    // ДОБАВЛЕНЫ УНИКАЛЬНЫЕ ID (val-w-... и val-r-...) ДЛЯ ТОЧЕЧНОГО ОБНОВЛЕНИЯ ДОМ
                     setsHtml += `
                         <div class="set-row clickable" onclick="openFocusMode('${exName}', ${exIndex}, ${i})" style="cursor: pointer;">
-                            <div class="fake-input" style="color: ${currW ? 'var(--text-main)' : 'var(--text-muted)'};">${currW || 'КГ'}</div>
-                            <div class="fake-input" style="color: ${currR ? 'var(--text-main)' : 'var(--text-muted)'};">${currR || 'ПОВТ'}</div>
+                            <div class="fake-input" id="val-w-${exIndex}-${i}" style="color: ${currW ? 'var(--text-main)' : 'var(--text-muted)'};">${currW || 'КГ'}</div>
+                            <div class="fake-input" id="val-r-${exIndex}-${i}" style="color: ${currR ? 'var(--text-main)' : 'var(--text-muted)'};">${currR || 'ПОВТ'}</div>
                             <div class="ghost-text">${ghostStr}</div>
                         </div>
                     `;
