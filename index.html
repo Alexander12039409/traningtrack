@@ -41,7 +41,6 @@
             overflow-x: hidden;
         }
 
-        /* Блокировка скролла при открытой модалке (Фикс 2) */
         body.modal-open {
             overflow: hidden;
             position: fixed;
@@ -94,7 +93,7 @@
             margin-bottom: var(--spacing-sm);
             outline: none;
             transition: all 0.2s ease;
-            color-scheme: dark; /* Для нативного календаря */
+            color-scheme: dark; 
         }
         input:focus { 
             border-color: var(--primary-color); 
@@ -312,7 +311,6 @@
             </div>
             <div id="workout-exercises-list"></div>
             
-            <!-- Выбор кастомной даты (Фикс 3) -->
             <div class="card" style="margin-top: 16px; padding: 16px;">
                 <label style="color: var(--text-muted); font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">Дата тренировки</label>
                 <input type="date" id="workout-custom-date" style="margin: 0; padding: 12px; font-size: 16px; width: 100%; box-sizing: border-box;">
@@ -494,7 +492,7 @@
         let appData = { config: [], history: [] };
         let currentWorkout = { dayId: null, results: {} };
 
-        // Автосохранение черновика (Фикс 1)
+        // Локальный черновик (не синхронизируем, так как это актуально только для текущего устройства в моменте)
         function saveInProgressWorkout() {
             localStorage.setItem('workoutApp_draft', JSON.stringify(currentWorkout));
         }
@@ -503,7 +501,163 @@
             localStorage.removeItem('workoutApp_draft');
         }
 
-        // --- УПРАВЛЕНИЕ ШТОРКАМИ ---
+        // --- ФУНКЦИИ СИНХРОНИЗАЦИИ TELEGRAM CLOUD STORAGE ---
+        
+        function saveConfigToCloud() {
+            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
+                tg.CloudStorage.setItem('cfg', JSON.stringify(appData.config));
+            } else {
+                fallbackLocalSave();
+            }
+        }
+
+        function saveSessionToCloud(sessionObj) {
+            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
+                tg.CloudStorage.setItem('h_' + sessionObj.timestamp, JSON.stringify(sessionObj));
+            }
+        }
+
+        function removeSessionFromCloud(timestamp) {
+            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
+                tg.CloudStorage.removeItem('h_' + timestamp);
+            }
+        }
+
+        function fallbackLocalSave() {
+            localStorage.setItem('workoutApp_data', JSON.stringify(appData));
+        }
+
+        function loadData() {
+            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
+                tg.CloudStorage.getKeys((err, keys) => {
+                    if (err) {
+                        fallbackLocalLoad();
+                        return;
+                    }
+                    
+                    // 1. АВТО-МИГРАЦИЯ: Если есть старый монолитный ключ, разбиваем его и удаляем
+                    if (keys && keys.includes('workoutApp_data')) {
+                        tg.CloudStorage.getItem('workoutApp_data', (err, val) => {
+                            if (val) {
+                                try {
+                                    const parsed = JSON.parse(val);
+                                    appData.config = parsed.config || defaultSplit;
+                                    appData.history = parsed.history || [];
+                                    
+                                    // Сохраняем в новый безопасный формат баз данных
+                                    saveConfigToCloud();
+                                    appData.history.forEach(h => saveSessionToCloud(h));
+                                    tg.CloudStorage.removeItem('workoutApp_data'); 
+                                    
+                                    processLoadedConfig();
+                                    updateUI(); checkDraft();
+                                } catch(e) { fallbackLocalLoad(); }
+                            }
+                        });
+                        return;
+                    }
+
+                    // 2. Если облако абсолютно пустое, ищем локальные данные браузера для синхронизации вверх
+                    const targetKeys = keys ? keys.filter(k => k === 'cfg' || k.startsWith('h_')) : [];
+                    if (targetKeys.length === 0) {
+                        const localSaved = localStorage.getItem('workoutApp_data');
+                        if (localSaved) {
+                            try {
+                                const parsed = JSON.parse(localSaved);
+                                appData.config = parsed.config || defaultSplit;
+                                appData.history = parsed.history || [];
+                                saveConfigToCloud();
+                                appData.history.forEach(h => saveSessionToCloud(h));
+                            } catch(e) { appData.config = defaultSplit; }
+                        } else {
+                            appData.config = defaultSplit;
+                        }
+                        processLoadedConfig();
+                        updateUI(); checkDraft();
+                        return;
+                    }
+                    
+                    // 3. СТАНДАРТНАЯ ЗАГРУЗКА: Собираем данные из кусочков
+                    tg.CloudStorage.getItems(targetKeys, (err, values) => {
+                        if (err) { fallbackLocalLoad(); return; }
+                        
+                        if (values['cfg']) {
+                            try { appData.config = JSON.parse(values['cfg']); } 
+                            catch(e) { appData.config = defaultSplit; }
+                        } else {
+                            appData.config = defaultSplit;
+                        }
+                        
+                        appData.history = [];
+                        for (const k in values) {
+                            if (k.startsWith('h_')) {
+                                try { appData.history.push(JSON.parse(values[k])); } catch(e) {}
+                            }
+                        }
+                        
+                        appData.history.sort((a,b) => a.timestamp - b.timestamp);
+                        processLoadedConfig();
+                        updateUI(); checkDraft();
+                    });
+                });
+            } else {
+                fallbackLocalLoad();
+            }
+        }
+
+        function fallbackLocalLoad() {
+            const saved = localStorage.getItem('workoutApp_data');
+            if (saved) {
+                try {
+                    const parsedData = JSON.parse(saved);
+                    appData.config = parsedData.config || defaultSplit;
+                    appData.history = parsedData.history || [];
+                } catch(e) {
+                    appData.config = defaultSplit;
+                }
+            } else {
+                appData.config = defaultSplit;
+            }
+            processLoadedConfig();
+            updateUI(); checkDraft();
+        }
+
+        function processLoadedConfig() {
+            appData.config.forEach(day => {
+                day.exercises = day.exercises.map(ex => {
+                    if (typeof ex === 'string') return { name: ex, sets: 3, description: '' };
+                    return ex;
+                });
+            });
+        }
+
+        function checkDraft() {
+            const draft = localStorage.getItem('workoutApp_draft');
+            if (draft) {
+                currentWorkout = JSON.parse(draft);
+                if (currentWorkout.dayId) {
+                    document.getElementById('workout-day-selector').style.display = 'none';
+                    document.getElementById('highlight-widget').style.display = 'none';
+                    document.getElementById('active-workout-container').style.display = 'block';
+                    
+                    const day = appData.config.find(d => d.id === currentWorkout.dayId);
+                    if (day) {
+                        document.getElementById('active-workout-title').innerText = day.name;
+                        
+                        const today = new Date();
+                        const yyyy = today.getFullYear();
+                        const mm = String(today.getMonth() + 1).padStart(2, '0');
+                        const dd = String(today.getDate()).padStart(2, '0');
+                        document.getElementById('workout-custom-date').value = `${yyyy}-${mm}-${dd}`;
+
+                        renderActiveExercises(day);
+                    }
+                }
+            }
+        }
+
+        // --- ИНТЕРФЕЙСНЫЕ ФУНКЦИИ И ЛОГИКА ---
+        
         function openDrawer(title, contentHtml) {
             haptic('light');
             document.getElementById('drawer-title').innerText = title;
@@ -546,16 +700,17 @@
 
             document.getElementById('focus-overlay').classList.add('active');
             document.getElementById('focus-modal').classList.add('active');
-            document.body.classList.add('modal-open'); // Блокируем скролл (Фикс 2)
+            document.body.classList.add('modal-open'); 
             
             document.querySelector('.bottom-nav-container').style.display = 'none';
+
+            setTimeout(() => { inputW.focus(); }, 300);
         }
 
         function closeFocusMode(save) {
             if (save) {
                 haptic('success');
                 const day = appData.config.find(d => d.id === currentWorkout.dayId);
-                const exObj = day.exercises[focusExIndex];
 
                 if (!currentWorkout.results[focusExName]) currentWorkout.results[focusExName] = [];
                 
@@ -567,120 +722,19 @@
                     r: r !== '' ? parseInt(r) : null 
                 };
 
-                saveInProgressWorkout(); // Сохраняем черновик (Фикс 1)
-                renderActiveExercises(day);
-
-                if (focusSetIndex === exObj.sets - 1 && w !== '' && r !== '') {
-                    const content = document.getElementById(`ex-content-${focusExIndex}`);
-                    const chevron = document.getElementById(`chevron-${focusExIndex}`);
-                    if (content && content.style.display !== 'none') {
-                        content.style.display = 'none';
-                        chevron.style.transform = 'rotate(180deg)';
-                    }
-                }
+                saveInProgressWorkout(); 
+                renderActiveExercises(day); 
             } else {
                 haptic('soft');
             }
 
             document.getElementById('focus-overlay').classList.remove('active');
             document.getElementById('focus-modal').classList.remove('active');
-            document.body.classList.remove('modal-open'); // Возвращаем скролл (Фикс 2)
+            document.body.classList.remove('modal-open'); 
             
             document.querySelector('.bottom-nav-container').style.display = 'block';
         }
 
-        // --- ДАННЫЕ И МИГРАЦИЯ ---
-        function loadData() {
-            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
-                tg.CloudStorage.getItem('workoutApp_data', (err, saved) => {
-                    if (!saved || saved.length === 0) {
-                        const oldLocalData = localStorage.getItem('workoutApp_data');
-                        if (oldLocalData) {
-                            handleLoadedData(oldLocalData);
-                            saveData(); 
-                            checkDraft(); // Проверяем черновик после загрузки
-                            return;
-                        }
-                    }
-                    handleLoadedData(saved);
-                    checkDraft();
-                });
-            } else {
-                const saved = localStorage.getItem('workoutApp_data');
-                handleLoadedData(saved);
-                checkDraft();
-            }
-        }
-
-        function checkDraft() {
-            // Восстановление черновика (Фикс 1)
-            const draft = localStorage.getItem('workoutApp_draft');
-            if (draft) {
-                currentWorkout = JSON.parse(draft);
-                if (currentWorkout.dayId) {
-                    document.getElementById('workout-day-selector').style.display = 'none';
-                    document.getElementById('highlight-widget').style.display = 'none';
-                    document.getElementById('active-workout-container').style.display = 'block';
-                    
-                    const day = appData.config.find(d => d.id === currentWorkout.dayId);
-                    if (day) {
-                        document.getElementById('active-workout-title').innerText = day.name;
-                        
-                        // Устанавливаем дату сегодня или оставляем из выбора, если логика усложнится в будущем
-                        const today = new Date();
-                        const yyyy = today.getFullYear();
-                        const mm = String(today.getMonth() + 1).padStart(2, '0');
-                        const dd = String(today.getDate()).padStart(2, '0');
-                        document.getElementById('workout-custom-date').value = `${yyyy}-${mm}-${dd}`;
-
-                        renderActiveExercises(day);
-                    }
-                }
-            }
-        }
-
-        function handleLoadedData(saved) {
-            try {
-                if (saved) {
-                    const parsedData = JSON.parse(saved);
-                    appData.config = parsedData.config || [];
-                    appData.history = parsedData.history || [];
-                    
-                    appData.config.forEach(day => {
-                        day.exercises = day.exercises.map(ex => {
-                            if (typeof ex === 'string') return { name: ex, sets: 3, description: '' };
-                            return ex;
-                        });
-                    });
-
-                    if (appData.config.length === 0) {
-                        appData.config = defaultSplit;
-                        saveData();
-                        return;
-                    }
-                    updateUI(); 
-                } else {
-                    appData.config = defaultSplit;
-                    saveData();
-                }
-            } catch (error) {
-                console.error("Ошибка загрузки данных", error);
-                appData.config = defaultSplit;
-                saveData();
-            }
-        }
-
-        function saveData() {
-            const dataStr = JSON.stringify(appData);
-            if (tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0) {
-                tg.CloudStorage.setItem('workoutApp_data', dataStr, (err, success) => {});
-            } else {
-                localStorage.setItem('workoutApp_data', dataStr);
-            }
-            updateUI();
-        }
-
-        // --- НАВИГАЦИЯ ---
         function switchTab(tabName) {
             haptic('selection');
             document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
@@ -692,7 +746,6 @@
             if(tabName === 'history') renderHistoryTab();
         }
 
-        // --- БОЕВОЙ РЕЖИМ ---
         function startWorkout(dayId) {
             haptic('medium');
             currentWorkout.dayId = dayId;
@@ -704,7 +757,6 @@
             const day = appData.config.find(d => d.id === dayId);
             document.getElementById('active-workout-title').innerText = day.name;
             
-            // Устанавливаем сегодняшнюю дату в инпут (Фикс 3)
             const today = new Date();
             const yyyy = today.getFullYear();
             const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -720,7 +772,7 @@
             haptic('warning');
             if(confirm("Отменить тренировку? Прогресс не сохранится.")) {
                 currentWorkout.dayId = null;
-                clearInProgressWorkout(); // Очищаем черновик
+                clearInProgressWorkout(); 
                 document.getElementById('workout-day-selector').style.display = 'block';
                 renderHighlightWidget(); 
                 document.getElementById('active-workout-container').style.display = 'none';
@@ -750,6 +802,15 @@
 
         function renderActiveExercises(day) {
             const container = document.getElementById('workout-exercises-list');
+            
+            let accordionStates = {};
+            if (container.children.length > 0) {
+                day.exercises.forEach((_, i) => {
+                    const el = document.getElementById(`ex-content-${i}`);
+                    if (el) accordionStates[i] = el.style.display;
+                });
+            }
+
             container.innerHTML = '';
 
             day.exercises.forEach((exObj, exIndex) => {
@@ -776,6 +837,9 @@
                     `;
                 }
 
+                let displayState = accordionStates[exIndex] !== undefined ? accordionStates[exIndex] : 'block';
+                let chevronTransform = displayState === 'none' ? 'rotate(180deg)' : 'rotate(0deg)';
+
                 container.innerHTML += `
                     <div class="card" id="ex-card-${exIndex}">
                         <div class="flex-between" onclick="toggleAccordion(${exIndex})" style="cursor: pointer;">
@@ -784,11 +848,11 @@
                                 <h4 style="margin: 0; padding-right: 16px;">${exName}</h4>
                                 ${exObj.description ? `<div style="font-size: 13px; color: var(--text-muted); margin-top: 4px; padding-right: 16px; line-height: 1.2;">${exObj.description}</div>` : ''}
                             </div>
-                            <div id="chevron-${exIndex}" style="transition: transform 0.3s ease; color: var(--text-muted);">
+                            <div id="chevron-${exIndex}" style="transition: transform 0.3s ease; color: var(--text-muted); transform: ${chevronTransform};">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
                             </div>
                         </div>
-                        <div id="ex-content-${exIndex}" style="display: block; margin-top: 12px;">
+                        <div id="ex-content-${exIndex}" style="display: ${displayState}; margin-top: 12px;">
                             ${setsHtml}
                         </div>
                     </div>
@@ -810,11 +874,9 @@
             
             haptic('success');
             
-            // Берем дату из инпута (Фикс 3)
             const dateInput = document.getElementById('workout-custom-date').value;
-            let workoutDate = new Date(); // Фолбэк на сегодня
+            let workoutDate = new Date(); 
             if (dateInput) {
-                // Чтобы избежать проблем с часовыми поясами, создаем дату аккуратно
                 const parts = dateInput.split('-');
                 if (parts.length === 3) {
                     workoutDate = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -822,22 +884,25 @@
             }
             
             const dateStr = workoutDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
-            
-            appData.history.push({ 
+            const sessionObj = { 
                 date: dateStr, 
                 timestamp: workoutDate.getTime(), 
                 dayId: currentWorkout.dayId, 
                 results: cleanResults 
-            });
-            saveData();
-            clearInProgressWorkout(); // Чистим черновик
+            };
+            
+            appData.history.push(sessionObj);
+            saveSessionToCloud(sessionObj);
+            
+            if (!tg.initDataUnsafe || Object.keys(tg.initDataUnsafe).length === 0) fallbackLocalSave();
+            clearInProgressWorkout(); 
             
             currentWorkout.dayId = null;
             document.getElementById('workout-day-selector').style.display = 'block';
             document.getElementById('active-workout-container').style.display = 'none';
+            updateUI();
         }
 
-        // --- ВИДЖЕТ РЕКОРДОВ ---
         function renderHighlightWidget() {
             const container = document.getElementById('highlight-widget');
             if (appData.history.length === 0) {
@@ -885,7 +950,6 @@
             container.style.display = 'block';
         }
 
-        // --- ДИНАМИКА ---
         function openStatsSelector() {
             let allEx = new Set();
             appData.config.forEach(d => d.exercises.forEach(e => allEx.add(e.name)));
@@ -930,7 +994,6 @@
             container.innerHTML = html || '<p style="color: var(--text-muted); text-align: center; padding: 40px 0; font-weight: 500;">Нет сохраненных результатов.</p>';
         }
 
-        // --- КАЛЕНДАРЬ И ИСТОРИЯ ---
         function changeMonth(delta) {
             haptic('selection');
             currentCalDate.setMonth(currentCalDate.getMonth() + delta);
@@ -1039,13 +1102,16 @@
         function deleteHistoryEntry(index) {
             haptic('heavy');
             if(confirm("Точно удалить эту запись?")) {
+                const timestamp = appData.history[index].timestamp;
                 appData.history.splice(index, 1);
-                saveData();
+                
+                removeSessionFromCloud(timestamp);
+                if (!tg.initDataUnsafe || Object.keys(tg.initDataUnsafe).length === 0) fallbackLocalSave();
+                
                 renderHistoryTab(); 
             }
         }
 
-        // --- СПЛИТ И НАСТРОЙКИ ---
         function addDay() {
             const nameInput = document.getElementById('new-day-name');
             const name = nameInput.value.trim();
@@ -1053,7 +1119,8 @@
             haptic('medium');
             appData.config.push({ id: 'day_' + Date.now(), name: name, exercises: [] });
             nameInput.value = '';
-            saveData();
+            saveConfigToCloud();
+            updateUI();
         }
 
         function addExerciseToDay(dayId) {
@@ -1073,7 +1140,8 @@
                 day.exercises.push({ name: exName, sets: setsCount, description: exDesc });
                 input.value = '';
                 descInput.value = '';
-                saveData();
+                saveConfigToCloud();
+                updateUI();
             } else if (day && day.exercises.find(e => e.name === exName)) {
                 haptic('warning');
                 alert("Упражнение с таким названием уже есть в этом дне.");
@@ -1115,8 +1183,9 @@
             day.exercises[exIndex].sets = newSets;
             day.exercises[exIndex].description = newDesc;
             
-            saveData();
+            saveConfigToCloud();
             closeDrawer();
+            updateUI();
         }
 
         function removeExercise(dayId, exIndex) {
@@ -1125,7 +1194,8 @@
             const exName = day.exercises[exIndex].name;
             if(confirm(`Удалить "${exName}"?`)) {
                 day.exercises.splice(exIndex, 1);
-                saveData();
+                saveConfigToCloud();
+                updateUI();
             }
         }
 
@@ -1133,11 +1203,11 @@
             haptic('heavy');
             if(confirm("Полностью удалить этот день?")) {
                 appData.config = appData.config.filter(d => d.id !== dayId);
-                saveData();
+                saveConfigToCloud();
+                updateUI();
             }
         }
 
-        // --- ГЛАВНЫЙ РЕНДЕР ИНТЕРФЕЙСА ---
         function updateUI() {
             renderHighlightWidget();
 
